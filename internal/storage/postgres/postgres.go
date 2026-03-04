@@ -1,11 +1,12 @@
-package sqlite
+package postgres
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
 
-	"github.com/mattn/go-sqlite3"
+	"github.com/jackc/pgx/v5/pgconn"
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"url-shortener/internal/storage"
 )
@@ -14,24 +15,23 @@ type Storage struct {
 	db *sql.DB
 }
 
-func New(storagePath string) (*Storage, error) {
-	const op = "storage.sqlite.New"
+func New(dsn string) (*Storage, error) {
+	const op = "storage.postgres.New"
 
-	db, err := sql.Open("sqlite3", storagePath)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	if err = db.Ping(); err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS urls (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id BIGSERIAL PRIMARY KEY,
 		alias TEXT NOT NULL UNIQUE,
 		url TEXT NOT NULL
 	)`)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
-	}
-
-	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_alias ON urls(alias)`)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
@@ -40,24 +40,21 @@ func New(storagePath string) (*Storage, error) {
 }
 
 func (s *Storage) SaveUrl(urlToSave string, alias string) error {
-	const op = "storage.sqlite.SaveURL"
+	const op = "storage.postgres.SaveURL"
 
-	stmt, err := s.db.Prepare("INSERT INTO urls(url, alias) VALUES(?, ?)")
+	stmt, err := s.db.Prepare("INSERT INTO urls(url, alias) VALUES($1, $2)")
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 	defer stmt.Close()
 
-	res, err := stmt.Exec(urlToSave, alias)
+	_, err = stmt.Exec(urlToSave, alias)
 	if err != nil {
-		if sqliteErr, ok := err.(sqlite3.Error); ok && sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return fmt.Errorf("%s: %w", op, storage.ErrURLExists)
 		}
-		return fmt.Errorf("%s: %w", op, err)
-	}
 
-	_, err = res.LastInsertId()
-	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
@@ -65,18 +62,19 @@ func (s *Storage) SaveUrl(urlToSave string, alias string) error {
 }
 
 func (s *Storage) GetUrl(alias string) (string, error) {
-	const op = "storage.sqlite.GetUrl"
+	const op = "storage.postgres.GetUrl"
 
-	stmt, err := s.db.Prepare("SELECT url FROM urls WHERE alias = ?")
+	stmt, err := s.db.Prepare("SELECT url FROM urls WHERE alias = $1")
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", op, err)
 	}
+	defer stmt.Close()
 
 	var resURL string
 
 	err = stmt.QueryRow(alias).Scan(&resURL)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("%s: %w", op, storage.ErrURLExists)
+		return "", fmt.Errorf("%s: %w", op, storage.ErrURLNotFound)
 	}
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", op, err)
@@ -86,12 +84,13 @@ func (s *Storage) GetUrl(alias string) (string, error) {
 }
 
 func (s *Storage) DeleteUrl(alias string) error {
-	const op = "storage.sqlite.DeleteURL"
+	const op = "storage.postgres.DeleteURL"
 
-	stmt, err := s.db.Prepare("DELETE FROM urls WHERE alias = ?")
+	stmt, err := s.db.Prepare("DELETE FROM urls WHERE alias = $1")
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
+	defer stmt.Close()
 
 	res, err := stmt.Exec(alias)
 	if err != nil {

@@ -18,7 +18,7 @@ import (
 	"url-shortener/internal/config"
 	mwLogger "url-shortener/internal/http-server/middleware"
 	"url-shortener/internal/lib/logger/sl"
-	"url-shortener/internal/storage/sqlite"
+	"url-shortener/internal/storage/postgres"
 )
 
 const (
@@ -28,7 +28,7 @@ const (
 )
 
 func init() {
-	err := godotenv.Load("C:\\Users\\HappyBook\\GolandProjects\\url-shortener\\.env")
+	err := godotenv.Load()
 	if err != nil {
 		log.Println("No .env file found")
 	}
@@ -42,7 +42,7 @@ func main() {
 	log.Info("Starting URL Shortener", slog.String("env", cfg.Env))
 	log.Debug("debug messages are enabled")
 
-	storage, err := sqlite.New(cfg.StoragePath)
+	storage, err := postgres.New(cfg.DBDsn)
 	if err != nil {
 		log.Error("Failed to initialize storage", sl.Err(err))
 		os.Exit(1)

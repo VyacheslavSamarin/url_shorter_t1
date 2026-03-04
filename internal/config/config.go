@@ -9,9 +9,9 @@ import (
 )
 
 type Config struct {
-	Env         string `yaml:"env" env:"ENV" env-default:"prod" env-required:"true"`
-	StoragePath string `yaml:"storage_path" env:"STORAGE_PATH" env-required:"true"`
-	HTTPServer  `yaml:"http_server"`
+	Env        string `yaml:"env" env:"ENV" env-default:"prod" env-required:"true"`
+	DBDsn      string `yaml:"db_dsn" env:"DB_DSN" env-required:"true"`
+	HTTPServer `yaml:"http_server"`
 }
 
 type HTTPServer struct {
