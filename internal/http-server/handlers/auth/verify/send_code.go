@@ -175,10 +175,12 @@ func NewSendCode(log *slog.Logger, saver VerificationSaver, smtpCfg config.SMTPC
 		go func() {
 			if err := sendEmail(smtpCfg, req.Email, code); err != nil {
 				log.Error("failed to send email", sl.Err(err))
+			} else {
+				log.Info("email sent successfully", slog.String("email", req.Email))
 			}
 		}()
 
-		log.Info("verification code sent", slog.String("email", req.Email))
+		log.Info("verification code queued", slog.String("email", req.Email))
 
 		render.JSON(w, r, SendCodeResponse{Response: resp.OK()})
 	}
