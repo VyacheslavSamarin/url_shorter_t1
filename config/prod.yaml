@@ -1,7 +1,9 @@
-env: "prod"
+env: "local"
 db_dsn: "postgres://postgres:postgres@localhost:5432/url_shortener?sslmode=disable"
+jwt_secret: "dev-secret-change-in-production"
+base_url: "http://localhost:8082"
 http_server:
   address: "0.0.0.0:8082"
   timeout: 4s
   idle_timeout: 30s
-  username: "Victor_admin"
+  username: "admin"

@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"log/slog"
 	"net/http"
+	mw "url-shortener/internal/http-server/middleware"
 	"url-shortener/internal/lib/logger/sl"
 	"url-shortener/internal/lib/random"
 	"url-shortener/internal/storage"
@@ -21,16 +22,17 @@ type Request struct {
 
 type Response struct {
 	resp.Response
-	Alias string `json:"alias,omitempty"`
+	Alias    string `json:"alias,omitempty"`
+	ShortURL string `json:"short_url,omitempty"`
 }
 
 const aliasLen = 6
 
 type UrlSaver interface {
-	SaveUrl(urlToSave string, alias string) error
+	SaveUrlForUser(urlToSave string, alias string, userID *int64) error
 }
 
-func New(log *slog.Logger, urlSaver UrlSaver) http.HandlerFunc {
+func New(log *slog.Logger, urlSaver UrlSaver, baseURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const op = "handlers.url.save.New"
 
@@ -44,7 +46,7 @@ func New(log *slog.Logger, urlSaver UrlSaver) http.HandlerFunc {
 		if err := render.DecodeJSON(r.Body, &req); err != nil {
 			log.Error("failed to decode request body", sl.Err(err))
 
-			w.WriteHeader(http.StatusBadRequest) // 400 при ошибке декодирования
+			w.WriteHeader(http.StatusBadRequest)
 			render.JSON(w, r, resp.Error("failed to decode request"))
 
 			return
@@ -57,21 +59,27 @@ func New(log *slog.Logger, urlSaver UrlSaver) http.HandlerFunc {
 			log.Error("invalid request", sl.Err(err))
 
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest) // 400 при ошибке валидации
+			w.WriteHeader(http.StatusBadRequest)
 			render.JSON(w, r, resp.ValidationError(validateErr))
 
 			return
 		}
+
 		alias := req.Alias
 		if alias == "" {
 			alias = random.NewRandomString(aliasLen)
 		}
 
-		err := urlSaver.SaveUrl(req.Url, alias)
+		var userIDPtr *int64
+		if userID, ok := mw.GetUserID(r); ok {
+			userIDPtr = &userID
+		}
+
+		err := urlSaver.SaveUrlForUser(req.Url, alias, userIDPtr)
 		if errors.Is(err, storage.ErrURLExists) {
 			log.Info("url already exists", slog.String("url", req.Url))
 
-			w.WriteHeader(http.StatusConflict) // 409 конфликт для существующего alias
+			w.WriteHeader(http.StatusConflict)
 			render.JSON(w, r, resp.Error("alias already exists"))
 
 			return
@@ -79,7 +87,7 @@ func New(log *slog.Logger, urlSaver UrlSaver) http.HandlerFunc {
 		if err != nil {
 			log.Error("failed to add url", sl.Err(err))
 
-			w.WriteHeader(http.StatusInternalServerError) // 500 для прочих ошибок сохранения
+			w.WriteHeader(http.StatusInternalServerError)
 			render.JSON(w, r, resp.Error("failed to add url"))
 
 			return
@@ -87,13 +95,10 @@ func New(log *slog.Logger, urlSaver UrlSaver) http.HandlerFunc {
 
 		log.Info("url added", slog.String("url", req.Url))
 
-		responseOK(w, r, alias)
+		render.JSON(w, r, Response{
+			Response: resp.OK(),
+			Alias:    alias,
+			ShortURL: baseURL + "/" + alias,
+		})
 	}
-}
-
-func responseOK(w http.ResponseWriter, r *http.Request, alias string) {
-	render.JSON(w, r, Response{
-		Response: resp.OK(),
-		Alias:    alias,
-	})
 }

@@ -1,22 +1,31 @@
 package main
 
 import (
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/render"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/render"
+	"github.com/joho/godotenv"
+
+	"url-shortener/internal/config"
+	authLogin "url-shortener/internal/http-server/handlers/auth/login"
+	authLogout "url-shortener/internal/http-server/handlers/auth/logout"
+	authRegister "url-shortener/internal/http-server/handlers/auth/register"
+	authVerify "url-shortener/internal/http-server/handlers/auth/verify"
 	"url-shortener/internal/http-server/handlers/redirect"
 	del "url-shortener/internal/http-server/handlers/url/delete"
+	urlqr "url-shortener/internal/http-server/handlers/url/qr"
 	"url-shortener/internal/http-server/handlers/url/save"
+	"url-shortener/internal/http-server/handlers/url/stats"
+	userMe "url-shortener/internal/http-server/handlers/user/me"
+	userUrls "url-shortener/internal/http-server/handlers/user/urls"
+	mwLogger "url-shortener/internal/http-server/middleware"
 	resp "url-shortener/internal/lib/api/response"
 	"url-shortener/internal/lib/logger/handlers/slogpretty"
-
-	"github.com/joho/godotenv"
-	"url-shortener/internal/config"
-	mwLogger "url-shortener/internal/http-server/middleware"
 	"url-shortener/internal/lib/logger/sl"
 	"url-shortener/internal/storage/postgres"
 )
@@ -37,44 +46,55 @@ func init() {
 func main() {
 	cfg := config.MustLoad()
 
-	log := setupLogger(cfg.Env)
+	logger := setupLogger(cfg.Env)
 
-	log.Info("Starting URL Shortener", slog.String("env", cfg.Env))
-	log.Debug("debug messages are enabled")
+	logger.Info("Starting URL Shortener", slog.String("env", cfg.Env))
+	logger.Debug("debug messages are enabled")
 
 	storage, err := postgres.New(cfg.DBDsn)
 	if err != nil {
-		log.Error("Failed to initialize storage", sl.Err(err))
+		logger.Error("Failed to initialize storage", sl.Err(err))
 		os.Exit(1)
 	}
 
 	router := chi.NewRouter()
 
-	// middlware
 	router.Use(middleware.RequestID)
-	router.Use(mwLogger.New(log))
+	router.Use(mwLogger.New(logger))
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.URLFormat)
+	router.Use(corsMiddleware)
 
-	router.Route("/url", func(r chi.Router) {
-		r.Use(middleware.BasicAuth("url-shotener", map[string]string{
-			cfg.HTTPServer.Username: cfg.HTTPServer.Password,
-		}))
+	router.Post("/auth/register", authRegister.New(logger, storage))
+	router.Post("/auth/login", authLogin.New(logger, storage, cfg.JWTSecret))
+	router.Post("/auth/logout", authLogout.New(logger, cfg.JWTSecret))
+	router.Post("/auth/register/send-code", authVerify.NewSendCode(logger, storage, cfg.SMTP))
+	router.Post("/auth/register/verify", authVerify.NewConfirmCode(logger, storage, cfg.JWTSecret))
 
-		r.Post("/", save.New(log, storage))
+	router.Get("/{alias}", redirect.New(logger, storage))
+	router.Get("/{alias}/qr", urlqr.New(logger, storage))
 
-		r.Delete("/", func(w http.ResponseWriter, r *http.Request) {
-			log.Info("alias is empty in delete")
+	router.Group(func(r chi.Router) {
+		r.Use(mwLogger.OptionalJWTAuth(cfg.JWTSecret))
+		r.Post("/url", save.New(logger, storage, cfg.BaseURL))
+	})
 
+	router.Group(func(r chi.Router) {
+		r.Use(mwLogger.JWTAuth(cfg.JWTSecret))
+
+		r.Get("/stats/{alias}", stats.New(logger, storage))
+		r.Get("/user/me", userMe.New(logger, storage))
+		r.Get("/user/urls", userUrls.New(logger, storage, cfg.BaseURL))
+		r.Put("/{alias}/qr/colors", urlqr.NewColorsHandler(logger, storage))
+		r.Delete("/url/{alias}", del.New(logger, storage))
+		r.Delete("/url", func(w http.ResponseWriter, r *http.Request) {
+			logger.Info("alias is empty in delete")
 			w.WriteHeader(http.StatusBadRequest)
 			render.JSON(w, r, resp.Error("alias is required"))
 		})
-		r.Delete("/{alias}", del.New(log, storage))
 	})
 
-	router.Get("/{alias}", redirect.New(log, storage))
-
-	log.Info("starting server", slog.String("address", cfg.Address))
+	logger.Info("starting server", slog.String("address", cfg.Address))
 
 	srv := &http.Server{
 		Addr:         cfg.Address,
@@ -85,28 +105,44 @@ func main() {
 	}
 
 	if err := srv.ListenAndServe(); err != nil {
-		log.Error("Failed to start server")
+		logger.Error("Failed to start server")
 	}
 
-	log.Error("Stopping server")
+	logger.Error("Stopping server")
+}
+
+// corsMiddleware добавляет CORS заголовки для фронтенда
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func setupLogger(env string) *slog.Logger {
-	var log *slog.Logger
+	var logger *slog.Logger
 	switch env {
 	case envLocal:
-		log = setupPrettySlog()
+		logger = setupPrettySlog()
 	case envDev:
-		log = slog.New(
+		logger = slog.New(
 			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}),
 		)
 	case envProd:
-		log = slog.New(
+		logger = slog.New(
 			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
 		)
 	}
 
-	return log
+	return logger
 }
 
 func setupPrettySlog() *slog.Logger {
