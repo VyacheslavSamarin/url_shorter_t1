@@ -19,11 +19,12 @@ type Config struct {
 }
 
 type SMTPConfig struct {
-	Host     string `yaml:"host" env:"SMTP_HOST" env-default:"smtp.gmail.com"`
-	Port     int    `yaml:"port" env:"SMTP_PORT" env-default:"587"`
-	Username string `yaml:"username" env:"SMTP_USERNAME"`
-	Password string `yaml:"password" env:"SMTP_PASSWORD"`
-	From     string `yaml:"from" env:"SMTP_FROM"`
+	Host         string `yaml:"host" env:"SMTP_HOST" env-default:"smtp.gmail.com"`
+	Port         int    `yaml:"port" env:"SMTP_PORT" env-default:"587"`
+	Username     string `yaml:"username" env:"SMTP_USERNAME"`
+	Password     string `yaml:"password" env:"SMTP_PASSWORD"`
+	From         string `yaml:"from" env:"SMTP_FROM"`
+	ResendAPIKey string `yaml:"resend_api_key" env:"RESEND_API_KEY"`
 }
 
 type HTTPServer struct {
@@ -36,6 +37,13 @@ type HTTPServer struct {
 
 func MustLoad() *Config {
 	configPath := os.Getenv("CONFIG_PATH")
+
+	// Railway предоставляет DATABASE_URL — используем как fallback для DB_DSN
+	if os.Getenv("DB_DSN") == "" {
+		if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+			os.Setenv("DB_DSN", dbURL)
+		}
+	}
 
 	var cfg Config
 
