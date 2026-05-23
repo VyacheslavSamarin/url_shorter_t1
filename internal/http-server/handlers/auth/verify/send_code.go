@@ -79,7 +79,7 @@ func sendEmail(smtpCfg config.SMTPConfig, to, code string) error {
 
 	addr := fmt.Sprintf("%s:%d", smtpCfg.Host, smtpCfg.Port)
 
-	conn, err := net.Dial("tcp", addr)
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("smtp dial: %w", err)
 	}
@@ -176,9 +176,11 @@ func NewSendCode(log *slog.Logger, saver VerificationSaver, smtpCfg config.SMTPC
 			return
 		}
 
-		if err := sendEmail(smtpCfg, req.Email, code); err != nil {
-			log.Error("failed to send email", sl.Err(err))
-		}
+		go func() {
+			if err := sendEmail(smtpCfg, req.Email, code); err != nil {
+				log.Error("failed to send email", sl.Err(err))
+			}
+		}()
 
 		log.Info("verification code sent", slog.String("email", req.Email))
 
