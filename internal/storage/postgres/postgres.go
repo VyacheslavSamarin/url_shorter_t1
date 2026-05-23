@@ -275,6 +275,42 @@ func (s *Storage) GetUrlsByUserID(userID int64) ([]URLRecord, error) {
 	return records, nil
 }
 
+func (s *Storage) UpdateAlias(oldAlias string, newAlias string, userID int64) error {
+	const op = "storage.postgres.UpdateAlias"
+
+	// Проверяем что новый alias не занят
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM urls WHERE alias = $1", newAlias).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if count > 0 {
+		return fmt.Errorf("%s: %w", op, storage.ErrURLExists)
+	}
+
+	res, err := s.db.Exec(
+		`UPDATE urls SET alias = $1 WHERE alias = $2 AND user_id = $3`,
+		newAlias, oldAlias, userID,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fmt.Errorf("%s: %w", op, storage.ErrURLExists)
+		}
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("%s: %w", op, storage.ErrURLNotFound)
+	}
+
+	return nil
+}
+
 func (s *Storage) UpdateQRColors(alias string, userID int64, fg, bg string) error {
 	const op = "storage.postgres.UpdateQRColors"
 

@@ -17,6 +17,7 @@ import (
 	authRegister "url-shortener/internal/http-server/handlers/auth/register"
 	authVerify "url-shortener/internal/http-server/handlers/auth/verify"
 	"url-shortener/internal/http-server/handlers/redirect"
+	urlalias "url-shortener/internal/http-server/handlers/url/alias"
 	del "url-shortener/internal/http-server/handlers/url/delete"
 	urlqr "url-shortener/internal/http-server/handlers/url/qr"
 	"url-shortener/internal/http-server/handlers/url/save"
@@ -86,6 +87,7 @@ func main() {
 		r.Get("/user/me", userMe.New(logger, storage))
 		r.Get("/user/urls", userUrls.New(logger, storage, cfg.BaseURL))
 		r.Put("/{alias}/qr/colors", urlqr.NewColorsHandler(logger, storage))
+		r.Put("/{alias}/alias", urlalias.NewUpdateHandler(logger, storage))
 		r.Delete("/url/{alias}", del.New(logger, storage))
 		r.Delete("/url", func(w http.ResponseWriter, r *http.Request) {
 			logger.Info("alias is empty in delete")
