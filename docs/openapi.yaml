@@ -1,0 +1,704 @@
+openapi: 3.0.3
+info:
+  title: ShortLinker API
+  description: |
+    REST API для сервиса сокращения ссылок ShortLinker.
+
+    **Аутентификация:** Bearer JWT токен в заголовке `Authorization: Bearer <token>`.
+    Токен выдаётся при логине (`POST /auth/login`) и действует 72 часа.
+  version: 1.0.0
+
+servers:
+  - url: https://api.shortlinker.ru
+    description: Production
+  - url: http://localhost:8082
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Регистрация, вход, выход
+  - name: URL
+    description: Сокращение, удаление, редирект
+  - name: QR
+    description: Генерация и настройка QR-кодов
+  - name: Stats
+    description: Статистика переходов
+  - name: User
+    description: Профиль и список ссылок пользователя
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    OkResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: OK
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: Error
+        error:
+          type: string
+          example: some error message
+
+    URLRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 42
+        alias:
+          type: string
+          example: abc123
+        url:
+          type: string
+          example: https://example.com/very/long/path
+        short_url:
+          type: string
+          example: https://api.shortlinker.ru/abc123
+        clicks:
+          type: integer
+          format: int64
+          example: 17
+        created_at:
+          type: string
+          format: date-time
+        qr_fg:
+          type: string
+          example: "000000"
+        qr_bg:
+          type: string
+          example: "ffffff"
+
+    Visit:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        alias:
+          type: string
+        ip:
+          type: string
+        country:
+          type: string
+        browser:
+          type: string
+        device_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+paths:
+  # ── Auth ──────────────────────────────────────────────────────────────────
+
+  /auth/register/send-code:
+    post:
+      tags: [Auth]
+      summary: Отправить код подтверждения на email
+      description: Хэширует пароль, сохраняет временную запись и отправляет 6-значный код на email. Код действует 15 минут.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  minLength: 6
+                  example: secret123
+      responses:
+        "200":
+          description: Код отправлен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          description: Невалидный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Пользователь уже существует
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/register/verify:
+    post:
+      tags: [Auth]
+      summary: Подтвердить email и завершить регистрацию
+      description: Проверяет код из письма, создаёт пользователя и возвращает JWT токен.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                code:
+                  type: string
+                  example: "482910"
+      responses:
+        "200":
+          description: Регистрация завершена, токен выдан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  token:
+                    type: string
+                  email:
+                    type: string
+                  id:
+                    type: integer
+                    format: int64
+        "400":
+          description: Неверный или истёкший код
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Пользователь уже существует
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Прямая регистрация (без верификации email)
+      description: Создаёт пользователя напрямую. Используется когда `skip_email_verify=true`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  minLength: 6
+                  example: secret123
+      responses:
+        "200":
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  user_id:
+                    type: integer
+                    format: int64
+                  email:
+                    type: string
+        "400":
+          description: Невалидный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Пользователь уже существует
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Войти в аккаунт
+      description: Проверяет email и пароль, возвращает JWT токен (TTL 72 часа).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  example: secret123
+      responses:
+        "200":
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  token:
+                    type: string
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  email:
+                    type: string
+                    example: user@example.com
+                  id:
+                    type: integer
+                    format: int64
+                    example: 42
+        "400":
+          description: Невалидный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Неверные учётные данные
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выйти из аккаунта
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Выход выполнен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  # ── URL ───────────────────────────────────────────────────────────────────
+
+  /url:
+    post:
+      tags: [URL]
+      summary: Сократить ссылку
+      description: |
+        Создаёт короткую ссылку. Если `alias` не передан — генерируется случайный (6 символов).
+        Работает как для авторизованных пользователей, так и для гостей.
+      security:
+        - BearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  example: https://example.com/very/long/path
+                alias:
+                  type: string
+                  example: mylink
+      responses:
+        "200":
+          description: Ссылка создана
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  alias:
+                    type: string
+                    example: mylink
+                  short_url:
+                    type: string
+                    example: https://api.shortlinker.ru/mylink
+        "400":
+          description: Невалидный URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Alias уже занят
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /url/{alias}:
+    delete:
+      tags: [URL]
+      summary: Удалить короткую ссылку
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: alias
+          in: path
+          required: true
+          schema:
+            type: string
+          example: mylink
+      responses:
+        "200":
+          description: Ссылка удалена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          description: Alias не указан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ссылка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /{alias}:
+    get:
+      tags: [URL]
+      summary: Редирект по короткой ссылке
+      parameters:
+        - name: alias
+          in: path
+          required: true
+          schema:
+            type: string
+          example: mylink
+      responses:
+        "301":
+          description: Редирект на оригинальный URL
+        "404":
+          description: Ссылка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Alias ─────────────────────────────────────────────────────────────────
+
+  /{alias}/alias:
+    put:
+      tags: [URL]
+      summary: Изменить alias короткой ссылки
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: alias
+          in: path
+          required: true
+          schema:
+            type: string
+          example: oldname
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_alias]
+              properties:
+                new_alias:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_-]{1,64}$"
+                  example: newname
+      responses:
+        "200":
+          description: Alias обновлён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  alias:
+                    type: string
+                    example: newname
+        "400":
+          description: Невалидный alias
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ссылка не найдена или не принадлежит пользователю
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Alias уже занят
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── QR ────────────────────────────────────────────────────────────────────
+
+  /{alias}/qr:
+    get:
+      tags: [QR]
+      summary: Получить QR-код для ссылки
+      description: Возвращает PNG изображение QR-кода. Цвета задаются через query-параметры.
+      parameters:
+        - name: alias
+          in: path
+          required: true
+          schema:
+            type: string
+          example: mylink
+        - name: fg
+          in: query
+          description: Цвет переднего плана в формате hex (без #)
+          schema:
+            type: string
+            example: "000000"
+        - name: bg
+          in: query
+          description: Цвет фона в формате hex (без #)
+          schema:
+            type: string
+            example: "ffffff"
+      responses:
+        "200":
+          description: PNG изображение QR-кода
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Ссылка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /{alias}/qr/colors:
+    put:
+      tags: [QR]
+      summary: Сохранить цвета QR-кода для ссылки
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: alias
+          in: path
+          required: true
+          schema:
+            type: string
+          example: mylink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fg:
+                  type: string
+                  description: Hex цвет без #
+                  example: "1a1a2e"
+                bg:
+                  type: string
+                  description: Hex цвет без #
+                  example: "e8f4f8"
+      responses:
+        "200":
+          description: Цвета сохранены
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "401":
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ссылка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Stats ─────────────────────────────────────────────────────────────────
+
+  /stats/{alias}:
+    get:
+      tags: [Stats]
+      summary: Получить статистику переходов по ссылке
+      description: Возвращает список всех переходов с данными о стране, браузере и устройстве. Доступно только владельцу ссылки.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: alias
+          in: path
+          required: true
+          schema:
+            type: string
+          example: mylink
+      responses:
+        "200":
+          description: Список переходов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  visits:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Visit"
+        "401":
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Нет доступа (ссылка не принадлежит пользователю)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Ссылка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── User ──────────────────────────────────────────────────────────────────
+
+  /user/me:
+    get:
+      tags: [User]
+      summary: Получить информацию о текущем пользователе
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Данные пользователя
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        format: int64
+                        example: 42
+                      email:
+                        type: string
+                        example: user@example.com
+                      created_at:
+                        type: string
+                        format: date-time
+        "401":
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /user/urls:
+    get:
+      tags: [User]
+      summary: Получить все ссылки текущего пользователя
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Список ссылок
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+                  urls:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/URLRecord"
+        "401":
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"

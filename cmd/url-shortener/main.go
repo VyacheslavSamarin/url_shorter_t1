@@ -17,6 +17,7 @@ import (
 	authRegister "url-shortener/internal/http-server/handlers/auth/register"
 	authVerify "url-shortener/internal/http-server/handlers/auth/verify"
 	"url-shortener/internal/http-server/handlers/redirect"
+	swaggerHandler "url-shortener/internal/http-server/handlers/swagger"
 	urlalias "url-shortener/internal/http-server/handlers/url/alias"
 	del "url-shortener/internal/http-server/handlers/url/delete"
 	urlqr "url-shortener/internal/http-server/handlers/url/qr"
@@ -65,6 +66,9 @@ func main() {
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.URLFormat)
 	router.Use(corsMiddleware)
+
+	// Swagger UI — доступен по /swagger/
+	router.Mount("/swagger", swaggerHandler.Handler())
 
 	router.Post("/auth/register", authRegister.New(logger, storage))
 	router.Post("/auth/login", authLogin.New(logger, storage, cfg.JWTSecret))
