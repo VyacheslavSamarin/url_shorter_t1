@@ -1,14 +1,16 @@
 package verify
 
 import (
-	"bytes"
 	"crypto/rand"
-	"encoding/json"
+	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
+	"net/smtp"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -52,66 +54,71 @@ func generateCode() (string, error) {
 	return string(code), nil
 }
 
-// sendEmailResend отправляет письмо через Resend HTTP API
-func sendEmailResend(apiKey, from, to, code string) error {
-	type emailPayload struct {
-		From    string `json:"from"`
-		To      []string `json:"to"`
-		Subject string `json:"subject"`
-		Text    string `json:"text"`
-	}
-
-	payload := emailPayload{
-		From:    from,
-		To:      []string{to},
-		Subject: "Код подтверждения ShortLinker",
-		Text: fmt.Sprintf(
-			"Ваш код подтверждения для регистрации в ShortLinker:\n\n%s\n\nКод действителен 15 минут.",
-			code,
-		),
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("resend marshal: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("resend new request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	res, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("resend do request: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode >= 400 {
-		var errBody map[string]interface{}
-		json.NewDecoder(res.Body).Decode(&errBody)
-		return fmt.Errorf("resend api error %d: %v", res.StatusCode, errBody)
-	}
-
-	return nil
-}
-
 func sendEmail(smtpCfg config.SMTPConfig, to, code string) error {
-	// Если задан Resend API ключ — используем его
-	if smtpCfg.ResendAPIKey != "" {
-		from := smtpCfg.From
-		if from == "" {
-			from = "onboarding@resend.dev"
-		}
-		return sendEmailResend(smtpCfg.ResendAPIKey, from, to, code)
+	if smtpCfg.Host == "" || smtpCfg.Username == "" {
+		fmt.Printf("[DEV] verification code for %s: %s\n", to, code)
+		return nil
 	}
 
-	// Fallback: вывод в лог для dev окружения
-	fmt.Printf("[DEV] verification code for %s: %s\n", to, code)
-	return nil
+	from := smtpCfg.From
+	if from == "" {
+		from = smtpCfg.Username
+	}
+
+	subjectText := "Код подтверждения ShortLinker"
+	subjectEncoded := "=?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(subjectText)) + "?="
+
+	body := fmt.Sprintf(
+		"Ваш код подтверждения для регистрации в ShortLinker:\n\n%s\n\nКод действителен 15 минут.",
+		code,
+	)
+	msg := fmt.Sprintf(
+		"From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n%s",
+		from, to, subjectEncoded, base64.StdEncoding.EncodeToString([]byte(body)),
+	)
+
+	addr := fmt.Sprintf("%s:%d", smtpCfg.Host, smtpCfg.Port)
+
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("smtp dial: %w", err)
+	}
+
+	client, err := smtp.NewClient(conn, smtpCfg.Host)
+	if err != nil {
+		return fmt.Errorf("smtp new client: %w", err)
+	}
+	defer client.Close()
+
+	tlsCfg := &tls.Config{ServerName: smtpCfg.Host}
+	if err = client.StartTLS(tlsCfg); err != nil {
+		return fmt.Errorf("smtp starttls: %w", err)
+	}
+
+	auth := smtp.PlainAuth("", smtpCfg.Username, smtpCfg.Password, smtpCfg.Host)
+	if err = client.Auth(auth); err != nil {
+		return fmt.Errorf("smtp auth: %w", err)
+	}
+
+	if err = client.Mail(from); err != nil {
+		return fmt.Errorf("smtp mail from: %w", err)
+	}
+	if err = client.Rcpt(to); err != nil {
+		return fmt.Errorf("smtp rcpt to: %w", err)
+	}
+
+	wc, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("smtp data: %w", err)
+	}
+	if _, err = fmt.Fprint(wc, msg); err != nil {
+		return fmt.Errorf("smtp write: %w", err)
+	}
+	if err = wc.Close(); err != nil {
+		return fmt.Errorf("smtp close writer: %w", err)
+	}
+
+	return client.Quit()
 }
 
 func NewSendCode(log *slog.Logger, saver VerificationSaver, smtpCfg config.SMTPConfig) http.HandlerFunc {

@@ -423,6 +423,24 @@ func (s *Storage) GetEmailVerification(email, code string) (*EmailVerification, 
 	return &v, nil
 }
 
+func (s *Storage) GetEmailVerificationByEmail(email string) (*EmailVerification, error) {
+	const op = "storage.postgres.GetEmailVerificationByEmail"
+
+	var v EmailVerification
+	err := s.db.QueryRow(
+		"SELECT id, email, code, password_hash, expires_at, created_at FROM email_verifications WHERE email = $1 ORDER BY created_at DESC LIMIT 1",
+		email,
+	).Scan(&v.ID, &v.Email, &v.Code, &v.Password, &v.ExpiresAt, &v.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("%s: %w", op, storage.ErrVerificationNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return &v, nil
+}
+
 func (s *Storage) DeleteEmailVerification(email string) error {
 	const op = "storage.postgres.DeleteEmailVerification"
 

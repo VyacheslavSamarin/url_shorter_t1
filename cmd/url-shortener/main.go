@@ -69,7 +69,7 @@ func main() {
 	router.Post("/auth/login", authLogin.New(logger, storage, cfg.JWTSecret))
 	router.Post("/auth/logout", authLogout.New(logger, cfg.JWTSecret))
 	router.Post("/auth/register/send-code", authVerify.NewSendCode(logger, storage, cfg.SMTP))
-	router.Post("/auth/register/verify", authVerify.NewConfirmCode(logger, storage, cfg.JWTSecret))
+	router.Post("/auth/register/verify", authVerify.NewConfirmCode(logger, storage, cfg.JWTSecret, cfg.SkipEmailVerify))
 
 	router.Get("/{alias}", redirect.New(logger, storage))
 	router.Get("/{alias}/qr", urlqr.New(logger, storage))

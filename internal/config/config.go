@@ -10,21 +10,21 @@ import (
 )
 
 type Config struct {
-	Env        string `yaml:"env" env:"ENV" env-default:"prod"`
-	DBDsn      string `yaml:"db_dsn" env:"DB_DSN" env-required:"true"`
-	JWTSecret  string `yaml:"jwt_secret" env:"JWT_SECRET" env-default:"change-me-in-production"`
-	BaseURL    string `yaml:"base_url" env:"BASE_URL" env-default:"http://localhost:8082"`
-	HTTPServer `yaml:"http_server"`
-	SMTP       SMTPConfig `yaml:"smtp"`
+	Env               string `yaml:"env" env:"ENV" env-default:"prod"`
+	DBDsn             string `yaml:"db_dsn" env:"DB_DSN" env-required:"true"`
+	JWTSecret         string `yaml:"jwt_secret" env:"JWT_SECRET" env-default:"change-me-in-production"`
+	BaseURL           string `yaml:"base_url" env:"BASE_URL" env-default:"http://localhost:8082"`
+	SkipEmailVerify   bool   `yaml:"skip_email_verify" env:"SKIP_EMAIL_VERIFY" env-default:"false"`
+	HTTPServer        `yaml:"http_server"`
+	SMTP              SMTPConfig `yaml:"smtp"`
 }
 
 type SMTPConfig struct {
-	Host         string `yaml:"host" env:"SMTP_HOST" env-default:"smtp.gmail.com"`
-	Port         int    `yaml:"port" env:"SMTP_PORT" env-default:"587"`
-	Username     string `yaml:"username" env:"SMTP_USERNAME"`
-	Password     string `yaml:"password" env:"SMTP_PASSWORD"`
-	From         string `yaml:"from" env:"SMTP_FROM"`
-	ResendAPIKey string `yaml:"resend_api_key" env:"RESEND_API_KEY"`
+	Host     string `yaml:"host" env:"SMTP_HOST" env-default:"smtp.gmail.com"`
+	Port     int    `yaml:"port" env:"SMTP_PORT" env-default:"587"`
+	Username string `yaml:"username" env:"SMTP_USERNAME"`
+	Password string `yaml:"password" env:"SMTP_PASSWORD"`
+	From     string `yaml:"from" env:"SMTP_FROM"`
 }
 
 type HTTPServer struct {

@@ -19,7 +19,7 @@ import (
 
 type ConfirmRequest struct {
 	Email string `json:"email" validate:"required,email"`
-	Code  string `json:"code" validate:"required,len=6"`
+	Code  string `json:"code" validate:"required"`
 }
 
 type ConfirmResponse struct {
@@ -31,11 +31,15 @@ type ConfirmResponse struct {
 
 type VerificationStore interface {
 	GetEmailVerification(email, code string) (*postgres.EmailVerification, error)
+	GetEmailVerificationByEmail(email string) (*postgres.EmailVerification, error)
 	DeleteEmailVerification(email string) error
 	CreateUser(email, passwordHash string) (int64, error)
 }
 
-func NewConfirmCode(log *slog.Logger, store VerificationStore, jwtSecret string) http.HandlerFunc {
+// NewConfirmCode обрабатывает подтверждение кода верификации.
+// Если skipVerify=true — код не проверяется, пользователь создаётся сразу
+// по данным из pending верификации (любой код подходит).
+func NewConfirmCode(log *slog.Logger, store VerificationStore, jwtSecret string, skipVerify bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const op = "handlers.auth.verify.NewConfirmCode"
 
@@ -60,26 +64,49 @@ func NewConfirmCode(log *slog.Logger, store VerificationStore, jwtSecret string)
 			return
 		}
 
-		verification, err := store.GetEmailVerification(req.Email, req.Code)
-		if errors.Is(err, storage.ErrVerificationNotFound) {
-			log.Info("verification not found", slog.String("email", req.Email))
-			w.WriteHeader(http.StatusBadRequest)
-			render.JSON(w, r, resp.Error("invalid or expired code"))
-			return
-		}
-		if err != nil {
-			log.Error("failed to get verification", sl.Err(err))
-			w.WriteHeader(http.StatusInternalServerError)
-			render.JSON(w, r, resp.Error("internal error"))
-			return
-		}
+		var verification *postgres.EmailVerification
 
-		if time.Now().After(verification.ExpiresAt) {
-			log.Info("verification code expired", slog.String("email", req.Email))
-			_ = store.DeleteEmailVerification(req.Email)
-			w.WriteHeader(http.StatusBadRequest)
-			render.JSON(w, r, resp.Error("code has expired"))
-			return
+		if skipVerify {
+			// Режим без верификации: ищем запись по email без проверки кода
+			v, err := store.GetEmailVerificationByEmail(req.Email)
+			if errors.Is(err, storage.ErrVerificationNotFound) {
+				log.Info("verification not found (skip mode)", slog.String("email", req.Email))
+				w.WriteHeader(http.StatusBadRequest)
+				render.JSON(w, r, resp.Error("send code first"))
+				return
+			}
+			if err != nil {
+				log.Error("failed to get verification", sl.Err(err))
+				w.WriteHeader(http.StatusInternalServerError)
+				render.JSON(w, r, resp.Error("internal error"))
+				return
+			}
+			verification = v
+			log.Info("email verification skipped", slog.String("email", req.Email))
+		} else {
+			// Обычный режим: проверяем код
+			v, err := store.GetEmailVerification(req.Email, req.Code)
+			if errors.Is(err, storage.ErrVerificationNotFound) {
+				log.Info("verification not found", slog.String("email", req.Email))
+				w.WriteHeader(http.StatusBadRequest)
+				render.JSON(w, r, resp.Error("invalid or expired code"))
+				return
+			}
+			if err != nil {
+				log.Error("failed to get verification", sl.Err(err))
+				w.WriteHeader(http.StatusInternalServerError)
+				render.JSON(w, r, resp.Error("internal error"))
+				return
+			}
+
+			if time.Now().After(v.ExpiresAt) {
+				log.Info("verification code expired", slog.String("email", req.Email))
+				_ = store.DeleteEmailVerification(req.Email)
+				w.WriteHeader(http.StatusBadRequest)
+				render.JSON(w, r, resp.Error("code has expired"))
+				return
+			}
+			verification = v
 		}
 
 		userID, err := store.CreateUser(verification.Email, verification.Password)
