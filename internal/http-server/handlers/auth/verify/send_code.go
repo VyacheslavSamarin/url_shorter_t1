@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
-	"net"
 	"net/http"
 	"net/smtp"
 	"time"
@@ -79,9 +78,11 @@ func sendEmail(smtpCfg config.SMTPConfig, to, code string) error {
 
 	addr := fmt.Sprintf("%s:%d", smtpCfg.Host, smtpCfg.Port)
 
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	// SSL соединение (порт 465) — прямой TLS без STARTTLS
+	tlsCfg := &tls.Config{ServerName: smtpCfg.Host}
+	conn, err := tls.Dial("tcp", addr, tlsCfg)
 	if err != nil {
-		return fmt.Errorf("smtp dial: %w", err)
+		return fmt.Errorf("smtp tls dial: %w", err)
 	}
 
 	client, err := smtp.NewClient(conn, smtpCfg.Host)
@@ -89,11 +90,6 @@ func sendEmail(smtpCfg config.SMTPConfig, to, code string) error {
 		return fmt.Errorf("smtp new client: %w", err)
 	}
 	defer client.Close()
-
-	tlsCfg := &tls.Config{ServerName: smtpCfg.Host}
-	if err = client.StartTLS(tlsCfg); err != nil {
-		return fmt.Errorf("smtp starttls: %w", err)
-	}
 
 	auth := smtp.PlainAuth("", smtpCfg.Username, smtpCfg.Password, smtpCfg.Host)
 	if err = client.Auth(auth); err != nil {
