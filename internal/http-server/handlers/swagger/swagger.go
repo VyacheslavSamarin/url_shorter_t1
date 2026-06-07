@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+//go:embed openapi.yaml
 var openapiSpec []byte
 
 const swaggerHTML = `<!DOCTYPE html>
