@@ -77,7 +77,7 @@ func main() {
 	router.Post("/auth/register/verify", authVerify.NewConfirmCode(logger, storage, cfg.JWTSecret, cfg.SkipEmailVerify))
 
 	router.Get("/{alias}", redirect.New(logger, storage))
-	router.Get("/{alias}/qr", urlqr.New(logger, storage))
+	router.Get("/{alias}/qr", urlqr.New(logger, storage, cfg.BaseURL))
 
 	router.Group(func(r chi.Router) {
 		r.Use(mwLogger.OptionalJWTAuth(cfg.JWTSecret))

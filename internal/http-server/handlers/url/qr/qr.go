@@ -45,7 +45,7 @@ func parseHexColor(s string) (color.RGBA, error) {
 	return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}, nil
 }
 
-func New(log *slog.Logger, urlGetter UrlGetter) http.HandlerFunc {
+func New(log *slog.Logger, urlGetter UrlGetter, baseURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const op = "handlers.url.qr.New"
 
@@ -63,7 +63,7 @@ func New(log *slog.Logger, urlGetter UrlGetter) http.HandlerFunc {
 			return
 		}
 
-		resUrl, err := urlGetter.GetUrl(alias)
+		_, err := urlGetter.GetUrl(alias)
 		if errors.Is(err, storage.ErrURLNotFound) {
 			log.Info("url not found", "alias", alias)
 
@@ -78,6 +78,9 @@ func New(log *slog.Logger, urlGetter UrlGetter) http.HandlerFunc {
 			render.JSON(w, r, resp.Error("internal error"))
 			return
 		}
+
+		// Формируем сокращённую ссылку для QR-кода
+		shortUrl := fmt.Sprintf("%s/%s", baseURL, alias)
 
 		// Читаем query-параметры цвета: fg (foreground) и bg (background)
 		fgParam := r.URL.Query().Get("fg")
@@ -101,8 +104,8 @@ func New(log *slog.Logger, urlGetter UrlGetter) http.HandlerFunc {
 			}
 		}
 
-		// Генерируем QR-код
-		qr, err := qrcode.New(resUrl, qrcode.Medium)
+		// Генерируем QR-код с сокращённой ссылкой
+		qr, err := qrcode.New(shortUrl, qrcode.Medium)
 		if err != nil {
 			log.Error(op, "failed to create qr code", sl.Err(err))
 
