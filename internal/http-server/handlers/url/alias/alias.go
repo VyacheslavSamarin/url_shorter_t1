@@ -30,7 +30,6 @@ type updateResponse struct {
 	Alias string `json:"alias,omitempty"`
 }
 
-// aliasRe — допустимые символы для alias: буквы, цифры, дефис, подчёркивание
 var aliasRe = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 func NewUpdateHandler(log *slog.Logger, updater AliasUpdater) http.HandlerFunc {

@@ -14,7 +14,6 @@ import (
 	resp "url-shortener/internal/lib/api/response"
 )
 
-// TokenBlacklist хранит инвалидированные токены в памяти до истечения их срока действия
 type TokenBlacklist struct {
 	mu     sync.RWMutex
 	tokens map[string]time.Time // token -> expiry
@@ -24,12 +23,10 @@ var Blacklist = &TokenBlacklist{
 	tokens: make(map[string]time.Time),
 }
 
-// Add добавляет токен в чёрный список
 func (b *TokenBlacklist) Add(token string, expiry time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.tokens[token] = expiry
-	// Чистим просроченные токены
 	now := time.Now()
 	for t, exp := range b.tokens {
 		if now.After(exp) {
@@ -38,7 +35,6 @@ func (b *TokenBlacklist) Add(token string, expiry time.Time) {
 	}
 }
 
-// IsBlacklisted проверяет, находится ли токен в чёрном списке
 func (b *TokenBlacklist) IsBlacklisted(token string) bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -84,7 +80,6 @@ func New(log *slog.Logger, jwtSecret string) http.HandlerFunc {
 			return []byte(jwtSecret), nil
 		})
 		if err != nil || !token.Valid {
-			// Токен уже невалиден — считаем выход успешным
 			log.Info("logout with invalid token (already expired or invalid)")
 			render.JSON(w, r, resp.OK())
 			return
@@ -97,7 +92,6 @@ func New(log *slog.Logger, jwtSecret string) http.HandlerFunc {
 			return
 		}
 
-		// Получаем время истечения токена
 		expFloat, ok := claims["exp"].(float64)
 		if !ok {
 			w.WriteHeader(http.StatusBadRequest)

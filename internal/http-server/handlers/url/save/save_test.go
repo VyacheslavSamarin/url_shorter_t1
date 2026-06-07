@@ -90,7 +90,7 @@ func TestSaveHandler(t *testing.T) {
 					SaveUrl(tc.url, tc.alias).
 					Return(tc.mockError).
 					Times(1)
-			} // В остальных случаях SaveUrl не вызывается
+			}
 
 			handler := save.New(slogdiscard.NewDiscardLogger(), mockSaver)
 
@@ -109,7 +109,6 @@ func TestSaveHandler(t *testing.T) {
 
 			require.Equal(t, tc.respError, resp.Error)
 
-			// Если ожидается успешный ответ — проверяем, что alias не пустой
 			if tc.status == http.StatusOK {
 				require.NotEmpty(t, resp.Alias)
 			}

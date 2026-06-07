@@ -67,7 +67,6 @@ func main() {
 	router.Use(middleware.URLFormat)
 	router.Use(corsMiddleware)
 
-	// Swagger UI — доступен по /swagger/
 	router.Mount("/swagger", swaggerHandler.Handler())
 
 	router.Post("/auth/register", authRegister.New(logger, storage))
@@ -117,7 +116,6 @@ func main() {
 	logger.Error("Stopping server")
 }
 
-// corsMiddleware добавляет CORS заголовки для фронтенда
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")

@@ -22,7 +22,6 @@ type UrlGetter interface {
 	GetUrl(alias string) (string, error)
 }
 
-// parseHexColor разбирает hex-цвет вида "#RRGGBB" или "RRGGBB" в color.RGBA
 func parseHexColor(s string) (color.RGBA, error) {
 	if len(s) > 0 && s[0] == '#' {
 		s = s[1:]
@@ -79,15 +78,13 @@ func New(log *slog.Logger, urlGetter UrlGetter, baseURL string) http.HandlerFunc
 			return
 		}
 
-		// Формируем сокращённую ссылку для QR-кода
 		shortUrl := fmt.Sprintf("%s/%s", baseURL, alias)
 
-		// Читаем query-параметры цвета: fg (foreground) и bg (background)
 		fgParam := r.URL.Query().Get("fg")
 		bgParam := r.URL.Query().Get("bg")
 
-		fgColor := color.RGBA{R: 0, G: 0, B: 0, A: 255}       // чёрный по умолчанию
-		bgColor := color.RGBA{R: 255, G: 255, B: 255, A: 255}  // белый по умолчанию
+		fgColor := color.RGBA{R: 0, G: 0, B: 0, A: 255}
+		bgColor := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
 		if fgParam != "" {
 			if parsed, err := parseHexColor(fgParam); err == nil {

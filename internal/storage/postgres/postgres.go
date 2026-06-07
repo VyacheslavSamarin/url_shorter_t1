@@ -278,7 +278,6 @@ func (s *Storage) GetUrlsByUserID(userID int64) ([]URLRecord, error) {
 func (s *Storage) UpdateAlias(oldAlias string, newAlias string, userID int64) error {
 	const op = "storage.postgres.UpdateAlias"
 
-	// Проверяем что новый alias не занят
 	var count int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM urls WHERE alias = $1", newAlias).Scan(&count)
 	if err != nil {

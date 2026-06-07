@@ -58,7 +58,6 @@ func NewColorsHandler(log *slog.Logger, updater QRColorsUpdater) http.HandlerFun
 			return
 		}
 
-		// Валидация hex-цветов (без #)
 		if !hexRe.MatchString(req.FG) {
 			w.WriteHeader(http.StatusBadRequest)
 			render.JSON(w, r, resp.Error("invalid fg color, expected 6-char hex without #"))

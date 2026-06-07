@@ -38,7 +38,6 @@ type HTTPServer struct {
 func MustLoad() *Config {
 	configPath := os.Getenv("CONFIG_PATH")
 
-	// Railway предоставляет DATABASE_URL — используем как fallback для DB_DSN
 	if os.Getenv("DB_DSN") == "" {
 		if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 			os.Setenv("DB_DSN", dbURL)
@@ -55,7 +54,6 @@ func MustLoad() *Config {
 			log.Fatalf("cannot read config: %s", err)
 		}
 	} else {
-		// Без yaml-файла — читаем только из переменных окружения
 		if err := cleanenv.ReadEnv(&cfg); err != nil {
 			log.Fatalf("cannot read env config: %s", err)
 		}

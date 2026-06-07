@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-//go:embed openapi.yaml
 var openapiSpec []byte
 
 const swaggerHTML = `<!DOCTYPE html>
@@ -37,11 +36,9 @@ const swaggerHTML = `<!DOCTYPE html>
 </body>
 </html>`
 
-// Handler возвращает http.Handler для маршрута /swagger/*
 func Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Swagger UI HTML
 	mux.HandleFunc("/swagger/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/swagger/")
 

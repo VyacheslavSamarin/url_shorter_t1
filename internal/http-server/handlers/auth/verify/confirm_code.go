@@ -36,9 +36,6 @@ type VerificationStore interface {
 	CreateUser(email, passwordHash string) (int64, error)
 }
 
-// NewConfirmCode обрабатывает подтверждение кода верификации.
-// Если skipVerify=true — код не проверяется, пользователь создаётся сразу
-// по данным из pending верификации (любой код подходит).
 func NewConfirmCode(log *slog.Logger, store VerificationStore, jwtSecret string, skipVerify bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const op = "handlers.auth.verify.NewConfirmCode"
@@ -67,7 +64,6 @@ func NewConfirmCode(log *slog.Logger, store VerificationStore, jwtSecret string,
 		var verification *postgres.EmailVerification
 
 		if skipVerify {
-			// Режим без верификации: ищем запись по email без проверки кода
 			v, err := store.GetEmailVerificationByEmail(req.Email)
 			if errors.Is(err, storage.ErrVerificationNotFound) {
 				log.Info("verification not found (skip mode)", slog.String("email", req.Email))
@@ -84,7 +80,6 @@ func NewConfirmCode(log *slog.Logger, store VerificationStore, jwtSecret string,
 			verification = v
 			log.Info("email verification skipped", slog.String("email", req.Email))
 		} else {
-			// Обычный режим: проверяем код
 			v, err := store.GetEmailVerification(req.Email, req.Code)
 			if errors.Is(err, storage.ErrVerificationNotFound) {
 				log.Info("verification not found", slog.String("email", req.Email))
